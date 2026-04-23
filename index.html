@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Processador de Consultas</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Processador de Consultas SQL</h1>
+
+    <textarea id="consulta" rows="8" cols="80">
+SELECT Cliente.Nome
+FROM Cliente
+WHERE Cliente.idCliente > 10
+    </textarea>
+
+    <br>
+    <button onclick="processarConsulta()">Processar</button>
+
+    <h2>Resultado</h2>
+    <pre id="resultado"></pre>
+
+    <script src="script.js"></script>
+</body>
+</html>
