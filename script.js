@@ -1,3 +1,79 @@
+const METADADOS = {
+    Cliente: ["idCliente", "Nome", "Email", "Nascimento", "Senha", "TipoCliente_idTipoCliente", "DataRegistro"],
+    Produto: ["idProduto", "Nome", "Descricao", "Preco", "QuantEstoque", "Categoria_idCategoria"],
+    Pedido: ["idPedido", "Status_idStatus", "DataPedido", "ValorTotalPedido", "Cliente_idCliente"],
+    Pedido_has_Produto: ["idPedidoProduto", "Pedido_idPedido", "Produto_idProduto", "Quantidade", "PrecoUnitario"],
+    TipoCliente: ["idTipoCliente", "Descricao"],
+    Categoria: ["idCategoria", "Descricao"],
+    Status: ["idStatus", "Descricao"],
+    Endereco: [
+        "idEndereco",
+        "EnderecoPadrao",
+        "Logradouro",
+        "Numero",
+        "Complemento",
+        "Bairro",
+        "Cidade",
+        "UF",
+        "CEP",
+        "TipoEndereco_idTipoEndereco",
+        "Cliente_idCliente"
+    ]
+};
+
+function validarTabelas(tabelas) {
+    tabelas.forEach(t => {
+        let tabelaReal = Object.keys(METADADOS)
+            .find(meta => meta.toLowerCase() === t.toLowerCase());
+
+        if (!tabelaReal) {
+            throw `Tabela inválida: ${t}`;
+        }
+    });
+}
+
+function validarCampos(campos, tabelas) {
+    campos.forEach(campo => {
+        let [tabela, atributo] = campo.split(".");
+
+        let tabelaReal = Object.keys(METADADOS)
+            .find(meta => meta.toLowerCase() === tabela.toLowerCase());
+
+        if (!tabelaReal) {
+            throw `Tabela não encontrada: ${tabela}`;
+        }
+
+        let atributoReal = METADADOS[tabelaReal]
+            .find(attr => attr.toLowerCase() === atributo.toLowerCase());
+
+        if (!atributoReal) {
+            throw `Atributo inválido: ${campo}`;
+        }
+    });
+}
+
+function gerarAlgebra(node) {
+    if (node.type === "table") {
+        return node.name;
+    }
+
+    if (node.type === "selection") {
+        return `σ(${node.condition})(${gerarAlgebra(node.child)})`;
+    }
+
+    if (node.type === "projection") {
+        return `π(${node.attributes.join(", ")})(${gerarAlgebra(node.child)})`;
+    }
+
+    if (node.type === "join") {
+        return `(${gerarAlgebra(node.left)} ⋈ ${node.condition} ${gerarAlgebra(node.right)})`;
+    }
+
+    if (node.type === "cartesian") {
+        return `(${gerarAlgebra(node.left)} × ${gerarAlgebra(node.right)})`;
+    }
+}
+
 function processarConsulta() {
     let sql = document.getElementById("consulta").value.trim();
     let resultado = document.getElementById("resultado");
@@ -10,7 +86,6 @@ function processarConsulta() {
         let condicao = "";
         let joinCond = null;
 
-        // 🔵 Detecta JOIN explícito
         let joinMatch = sql.match(/SELECT\s+(.+?)\s+FROM\s+(\w+)\s+JOIN\s+(\w+)\s+ON\s+(.+?)(\s+WHERE\s+(.+))?$/i);
 
         if (joinMatch) {
@@ -19,7 +94,6 @@ function processarConsulta() {
             joinCond = joinMatch[4];
             condicao = joinMatch[6] || "";
         } else {
-            // 🟢 Caso simples
             let partes = sql.match(/SELECT\s+(.+?)\s+FROM\s+(.+?)(\s+WHERE\s+(.+))?$/i);
             if (!partes) throw "Consulta inválida.";
 
@@ -31,7 +105,11 @@ function processarConsulta() {
         let camposArr = campos.split(",").map(s => s.trim());
         let condicoesArr = condicao ? condicao.split(/\bAND\b/i).map(s => s.trim()) : [];
 
-        // 🔴 Construção da árvore
+        // 🔴 VALIDAÇÃO
+        validarTabelas(tabelas);
+        validarCampos(camposArr, tabelas);
+
+        // 🔴 ÁRVORE
         let arvore;
 
         if (joinCond) {
@@ -50,16 +128,20 @@ function processarConsulta() {
             arvore = construirArvoreCanonica(camposArr, tabelas, condicoesArr);
         }
 
-        // 🔵 Heurísticas
+        // 🔵 HEURÍSTICAS
         let arvoreRedTuplas = aplicarReducaoTuplas(deepClone(arvore));
         let arvoreRedAtrib  = aplicarReducaoAtributos(deepClone(arvoreRedTuplas), camposArr);
 
-        // 🔴 NOVO: plano de execução baseado na árvore
+        // 🔴 NOVOS RESULTADOS
         let planoExecucao = gerarPlanoExecucao(arvoreRedAtrib);
+        let algebra = gerarAlgebra(arvoreRedAtrib);
 
         let plano = `
 Consulta SQL:
 ${sql}
+
+Álgebra Relacional:
+${algebra}
 
 Plano de Execução Otimizado:
 `;
@@ -118,7 +200,13 @@ function gerarPlanoExecucao(node, plano = []) {
 
 // Fábricas de nós da árvore de consulta 
 function makeTable(name) {
-    return { type: "table", name: name };
+    let tabelaReal = Object.keys(METADADOS)
+        .find(meta => meta.toLowerCase() === name.toLowerCase());
+
+    return {
+        type: "table",
+        name: tabelaReal || name
+    };
 }
 function makeSelection(condition, child) {
     return { type: "selection", condition: condition, child: child };
