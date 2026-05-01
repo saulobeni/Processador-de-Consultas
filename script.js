@@ -3,58 +3,113 @@ function processarConsulta() {
     let resultado = document.getElementById("resultado");
 
     try {
-        // Remove quebras de linha extras
         sql = sql.replace(/\n/g, " ").replace(/\s+/g, " ");
 
-        let partes = sql.match(/SELECT\s+(.+?)\s+FROM\s+(.+?)(\s+WHERE\s+(.+))?$/i);
+        let campos = "";
+        let tabelas = [];
+        let condicao = "";
+        let joinCond = null;
 
-        if (!partes) {
-            throw "Consulta inválida.";
+        // 🔵 Detecta JOIN explícito
+        let joinMatch = sql.match(/SELECT\s+(.+?)\s+FROM\s+(\w+)\s+JOIN\s+(\w+)\s+ON\s+(.+?)(\s+WHERE\s+(.+))?$/i);
+
+        if (joinMatch) {
+            campos = joinMatch[1];
+            tabelas = [joinMatch[2], joinMatch[3]];
+            joinCond = joinMatch[4];
+            condicao = joinMatch[6] || "";
+        } else {
+            // 🟢 Caso simples
+            let partes = sql.match(/SELECT\s+(.+?)\s+FROM\s+(.+?)(\s+WHERE\s+(.+))?$/i);
+            if (!partes) throw "Consulta inválida.";
+
+            campos = partes[1];
+            tabelas = partes[2].split(",").map(s => s.trim());
+            condicao = partes[4] || "";
         }
 
-        let campos = partes[1];
-        let tabela = partes[2];
-        let condicao = partes[4] || "sem condição";
+        let camposArr = campos.split(",").map(s => s.trim());
+        let condicoesArr = condicao ? condicao.split(/\bAND\b/i).map(s => s.trim()) : [];
 
-        let algebra = `π(${campos}) σ(${condicao}) (${tabela})`;
+        // 🔴 Construção da árvore
+        let arvore;
+
+        if (joinCond) {
+            let left = makeTable(tabelas[0]);
+            let right = makeTable(tabelas[1]);
+            let joinNode = makeJoin(joinCond, left, right);
+
+            if (condicoesArr.length > 0) {
+                arvore = makeProjection(camposArr,
+                    makeSelection(condicoesArr.join(" AND "), joinNode)
+                );
+            } else {
+                arvore = makeProjection(camposArr, joinNode);
+            }
+        } else {
+            arvore = construirArvoreCanonica(camposArr, tabelas, condicoesArr);
+        }
+
+        // 🔵 Heurísticas
+        let arvoreRedTuplas = aplicarReducaoTuplas(deepClone(arvore));
+        let arvoreRedAtrib  = aplicarReducaoAtributos(deepClone(arvoreRedTuplas), camposArr);
+
+        // 🔴 NOVO: plano de execução baseado na árvore
+        let planoExecucao = gerarPlanoExecucao(arvoreRedAtrib);
 
         let plano = `
 Consulta SQL:
 ${sql}
 
-Álgebra Relacional:
-${algebra}
+Plano de Execução Otimizado:
+`;
 
-Plano de Execução:
-1. Ler tabela ${tabela}
-2. Aplicar filtro ${condicao}
-3. Projetar campos ${campos}
-        `;
-
-        // Heurísticas de otimização
-        let camposArr = campos.split(",").map(s => s.trim());
-        let tabelasArr = tabela.split(",").map(s => s.trim());
-        let condicoesArr = condicao !== "sem condição"
-            ? condicao.split(/\bAND\b/i).map(s => s.trim())
-            : [];
-
-        let arvoreCanonica  = construirArvoreCanonica(camposArr, tabelasArr, condicoesArr);
-        let arvoreRedTuplas = aplicarReducaoTuplas(deepClone(arvoreCanonica));
-        let arvoreRedAtrib  = aplicarReducaoAtributos(deepClone(arvoreRedTuplas), camposArr);
+        planoExecucao.forEach((p, i) => {
+            plano += `${i + 1}. ${p}\n`;
+        });
 
         plano += `
-=== Heurística de Redução de Tuplas ===
-(σ empurradas para as folhas; condições de junção convertidas em ⋈, evitando produto cartesiano)
-${renderizarArvore(arvoreRedTuplas)}
-=== Heurística de Redução de Atributos ===
-(π adicionadas cedo para reduzir colunas antes das operações de junção)
-${renderizarArvore(arvoreRedAtrib)}`;
+=== Árvore Otimizada ===
+${renderizarArvore(arvoreRedAtrib)}
+`;
 
         resultado.textContent = plano;
 
     } catch (erro) {
         resultado.textContent = "Erro: " + erro;
     }
+}
+
+function gerarPlanoExecucao(node, plano = []) {
+    if (!node) return plano;
+
+    if (node.type === "table") {
+        plano.push(`SCAN ${node.name}`);
+    }
+
+    if (node.type === "selection") {
+        gerarPlanoExecucao(node.child, plano);
+        plano.push(`SELECT ${node.condition}`);
+    }
+
+    if (node.type === "projection") {
+        gerarPlanoExecucao(node.child, plano);
+        plano.push(`PROJECT ${node.attributes.join(", ")}`);
+    }
+
+    if (node.type === "join") {
+        gerarPlanoExecucao(node.left, plano);
+        gerarPlanoExecucao(node.right, plano);
+        plano.push(`JOIN ${node.condition}`);
+    }
+
+    if (node.type === "cartesian") {
+        gerarPlanoExecucao(node.left, plano);
+        gerarPlanoExecucao(node.right, plano);
+        plano.push(`CARTESIAN PRODUCT`);
+    }
+
+    return plano;
 }
 
 
