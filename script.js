@@ -76,7 +76,8 @@ function gerarAlgebra(node) {
 
 function processarConsulta() {
     let sql = document.getElementById("consulta").value.trim();
-    let resultado = document.getElementById("resultado");
+    let algebraRes = document.getElementById("algebra-result");
+    let planoRes = document.getElementById("plano-result");
 
     try {
         sql = sql.replace(/\n/g, " ").replace(/\s+/g, " ");
@@ -105,11 +106,11 @@ function processarConsulta() {
         let camposArr = campos.split(",").map(s => s.trim());
         let condicoesArr = condicao ? condicao.split(/\bAND\b/i).map(s => s.trim()) : [];
 
-        // 🔴 VALIDAÇÃO
+        // VALIDAÇÃO
         validarTabelas(tabelas);
         validarCampos(camposArr, tabelas);
 
-        // 🔴 ÁRVORE
+        // ÁRVORE
         let arvore;
 
         if (joinCond) {
@@ -128,37 +129,41 @@ function processarConsulta() {
             arvore = construirArvoreCanonica(camposArr, tabelas, condicoesArr);
         }
 
-        // 🔵 HEURÍSTICAS
+        // HEURÍSTICAS
         let arvoreRedTuplas = aplicarReducaoTuplas(deepClone(arvore));
-        let arvoreRedAtrib  = aplicarReducaoAtributos(deepClone(arvoreRedTuplas), camposArr);
+        let arvoreRedAtrib = aplicarReducaoAtributos(deepClone(arvoreRedTuplas), camposArr);
 
-        // 🔴 NOVOS RESULTADOS
+        // NOVOS RESULTADOS
         let planoExecucao = gerarPlanoExecucao(arvoreRedAtrib);
         let algebra = gerarAlgebra(arvoreRedAtrib);
 
-        let plano = `
-Consulta SQL:
-${sql}
+        algebraRes.textContent = algebra;
 
-Álgebra Relacional:
-${algebra}
-
-Plano de Execução Otimizado:
-`;
-
+        let plano = "";
         planoExecucao.forEach((p, i) => {
             plano += `${i + 1}. ${p}\n`;
         });
 
-        plano += `
-=== Árvore Otimizada ===
-${renderizarArvore(arvoreRedAtrib)}
-`;
+        planoRes.textContent = plano;
 
-        resultado.textContent = plano;
+        // Renderizar Grafo Mermaid
+        let mermaidCode = "graph TD\n" + gerarMermaid(arvoreRedAtrib);
+        let graphDiv = document.getElementById("mermaid-graph");
+
+        if (graphDiv) {
+            graphDiv.removeAttribute('data-processed');
+            graphDiv.innerHTML = mermaidCode;
+            mermaid.init(undefined, graphDiv);
+        }
 
     } catch (erro) {
-        resultado.textContent = "Erro: " + erro;
+        algebraRes.textContent = "Erro: " + erro;
+        planoRes.textContent = "Erro: " + erro;
+        let graphDiv = document.getElementById("mermaid-graph");
+        if (graphDiv) {
+            graphDiv.removeAttribute('data-processed');
+            graphDiv.innerHTML = "<!-- Grafo indisponível com erro -->";
+        }
     }
 }
 
@@ -166,29 +171,29 @@ function gerarPlanoExecucao(node, plano = []) {
     if (!node) return plano;
 
     if (node.type === "table") {
-        plano.push(`SCAN ${node.name}`);
+        plano.push(`Ler Tabela (TABLE SCAN): Acessar registros da tabela '${node.name}'`);
     }
 
     if (node.type === "selection") {
         gerarPlanoExecucao(node.child, plano);
-        plano.push(`SELECT ${node.condition}`);
+        plano.push(`Filtrar Tuplas (SELECTION): Manter apenas registros onde [${node.condition}]`);
     }
 
     if (node.type === "projection") {
         gerarPlanoExecucao(node.child, plano);
-        plano.push(`PROJECT ${node.attributes.join(", ")}`);
+        plano.push(`Extrair Colunas (PROJECTION): Retornar os campos -> ${node.attributes.join(", ")}`);
     }
 
     if (node.type === "join") {
         gerarPlanoExecucao(node.left, plano);
         gerarPlanoExecucao(node.right, plano);
-        plano.push(`JOIN ${node.condition}`);
+        plano.push(`Realizar Junção (JOIN): Combinar tabelas usando a condição [${node.condition}]`);
     }
 
     if (node.type === "cartesian") {
         gerarPlanoExecucao(node.left, plano);
         gerarPlanoExecucao(node.right, plano);
-        plano.push(`CARTESIAN PRODUCT`);
+        plano.push(`Produto Cartesiano (CROSS JOIN): Combinar todas as tuplas (Atenção: Operação de Alto Custo)`);
     }
 
     return plano;
@@ -196,8 +201,6 @@ function gerarPlanoExecucao(node, plano = []) {
 
 
 // Heurísticas de Otimização de Consultas
-
-
 // Fábricas de nós da árvore de consulta 
 function makeTable(name) {
     let tabelaReal = Object.keys(METADADOS)
@@ -230,7 +233,7 @@ function collectTables(node) {
     if (node.type === "table") return new Set([node.name.toLowerCase()]);
     if (node.type === "cartesian" || node.type === "join") {
         var s = collectTables(node.left);
-        collectTables(node.right).forEach(function(t) { s.add(t); });
+        collectTables(node.right).forEach(function (t) { s.add(t); });
         return s;
     }
     if (node.child) return collectTables(node.child);
@@ -239,12 +242,12 @@ function collectTables(node) {
 
 function extrairTabelasDaCondicao(cond) {
     var matches = cond.match(/\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b/g) || [];
-    return new Set(matches.map(function(m) { return m.split(".")[0].toLowerCase(); }));
+    return new Set(matches.map(function (m) { return m.split(".")[0].toLowerCase(); }));
 }
 
 function extrairAtributos(lista) {
     var result = [];
-    lista.forEach(function(item) {
+    lista.forEach(function (item) {
         var matches = item.match(/\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b/g) || [];
         result = result.concat(matches);
     });
@@ -258,7 +261,7 @@ function unirUnicos(a, b) {
 
 function isSubset(subset, superset) {
     var ok = true;
-    subset.forEach(function(item) { if (!superset.has(item)) ok = false; });
+    subset.forEach(function (item) { if (!superset.has(item)) ok = false; });
     return ok;
 }
 
@@ -283,7 +286,7 @@ function pushSelectionDown(node, cond) {
     }
 
     if (node.type === "cartesian") {
-        var leftTables  = collectTables(node.left);
+        var leftTables = collectTables(node.left);
         var rightTables = collectTables(node.right);
 
         if (tablesNeeded.size === 0) {
@@ -314,13 +317,13 @@ function converterParaJuncao(node) {
     if (!node) return node;
 
     if (node.type === "selection" && node.child && node.child.type === "cartesian") {
-        var tables      = extrairTabelasDaCondicao(node.condition);
-        var leftTables  = collectTables(node.child.left);
+        var tables = extrairTabelasDaCondicao(node.condition);
+        var leftTables = collectTables(node.child.left);
         var rightTables = collectTables(node.child.right);
-        var refLeft     = false;
-        var refRight    = false;
-        tables.forEach(function(t) {
-            if (leftTables.has(t))  refLeft  = true;
+        var refLeft = false;
+        var refRight = false;
+        tables.forEach(function (t) {
+            if (leftTables.has(t)) refLeft = true;
             if (rightTables.has(t)) refRight = true;
         });
 
@@ -334,7 +337,7 @@ function converterParaJuncao(node) {
     }
 
     if (node.type === "cartesian" || node.type === "join") {
-        node.left  = converterParaJuncao(node.left);
+        node.left = converterParaJuncao(node.left);
         node.right = converterParaJuncao(node.right);
     } else if (node.child) {
         node.child = converterParaJuncao(node.child);
@@ -347,10 +350,10 @@ function aplicarReducaoTuplas(tree) {
     var projNode = tree;
     if (!projNode.child || projNode.child.type !== "selection") return tree;
 
-    var condicoes = projNode.child.condition.split(/\bAND\b/i).map(function(s) { return s.trim(); });
+    var condicoes = projNode.child.condition.split(/\bAND\b/i).map(function (s) { return s.trim(); });
     projNode.child = projNode.child.child;
 
-    condicoes.forEach(function(cond) {
+    condicoes.forEach(function (cond) {
         projNode.child = pushSelectionDown(projNode.child, cond);
     });
 
@@ -363,7 +366,7 @@ function aplicarReducaoTuplas(tree) {
 // Heurística 2: Redução de Atributos (π push-down)
 function pushProjectionDown(node, neededAttrs) {
     if (node.type === "table") {
-        var tableAttrs = neededAttrs.filter(function(a) {
+        var tableAttrs = neededAttrs.filter(function (a) {
             return a.split(".")[0].toLowerCase() === node.name.toLowerCase();
         });
         if (tableAttrs.length > 0) {
@@ -373,21 +376,21 @@ function pushProjectionDown(node, neededAttrs) {
     }
 
     if (node.type === "selection") {
-        var condAttrs   = extrairAtributos([node.condition]);
+        var condAttrs = extrairAtributos([node.condition]);
         var belowNeeded = unirUnicos(neededAttrs, condAttrs);
         node.child = pushProjectionDown(node.child, belowNeeded);
         return node;
     }
 
     if (node.type === "cartesian" || node.type === "join") {
-        var lTables  = collectTables(node.left);
-        var rTables  = collectTables(node.right);
+        var lTables = collectTables(node.left);
+        var rTables = collectTables(node.right);
         // Para join, também incluir os atributos usados na condição de junção
         var extraAttrs = (node.type === "join") ? extrairAtributos([node.condition]) : [];
-        var allNeeded  = unirUnicos(neededAttrs, extraAttrs);
-        var leftNeeded  = allNeeded.filter(function(a) { return lTables.has(a.split(".")[0].toLowerCase()); });
-        var rightNeeded = allNeeded.filter(function(a) { return rTables.has(a.split(".")[0].toLowerCase()); });
-        node.left  = pushProjectionDown(node.left,  leftNeeded);
+        var allNeeded = unirUnicos(neededAttrs, extraAttrs);
+        var leftNeeded = allNeeded.filter(function (a) { return lTables.has(a.split(".")[0].toLowerCase()); });
+        var rightNeeded = allNeeded.filter(function (a) { return rTables.has(a.split(".")[0].toLowerCase()); });
+        node.left = pushProjectionDown(node.left, leftNeeded);
         node.right = pushProjectionDown(node.right, rightNeeded);
         return node;
     }
@@ -414,11 +417,11 @@ function aplicarReducaoAtributos(tree, campos) {
 
 // Renderizador de Árvore (formato indentado) 
 function getLabelDoNo(node) {
-    if (node.type === "table")      return "[" + node.name + "]";
-    if (node.type === "selection")  return "σ(" + node.condition + ")";
+    if (node.type === "table") return "[" + node.name + "]";
+    if (node.type === "selection") return "σ(" + node.condition + ")";
     if (node.type === "projection") return "π(" + node.attributes.join(", ") + ")";
-    if (node.type === "cartesian")  return "× (produto cartesiano)";
-    if (node.type === "join")       return "⋈(" + node.condition + ")";
+    if (node.type === "cartesian") return "× (produto cartesiano)";
+    if (node.type === "join") return "⋈(" + node.condition + ")";
     return "?";
 }
 
@@ -429,7 +432,7 @@ function getFilhosDoNo(node) {
 }
 
 function renderNo(node, prefixo, isUltimo) {
-    var conector     = isUltimo ? "└── " : "├── ";
+    var conector = isUltimo ? "└── " : "├── ";
     var prefixoFilho = isUltimo ? "    " : "│   ";
     var linha = prefixo + conector + getLabelDoNo(node) + "\n";
     var filhos = getFilhosDoNo(node);
@@ -446,4 +449,50 @@ function renderizarArvore(node) {
         resultado += renderNo(filhos[i], "", i === filhos.length - 1);
     }
     return resultado;
+}
+
+// Renderizador de Árvore Visual (Mermaid)
+let mermaidIdCounter = 0;
+
+function gerarMermaid(node) {
+    if (!node) return "";
+    let lines = [];
+    mermaidIdCounter = 0;
+
+    function traverse(n) {
+        if (!n._id) n._id = "node" + (mermaidIdCounter++);
+
+        let rawLabel = getLabelDoNo(n);
+        // Evitar quebra de sintaxe do mermaid (aspas duplas)
+        let safeLabel = rawLabel.replace(/"/g, "'");
+
+        // Format based on type
+        let nodeDef = "";
+        if (n.type === "table") {
+            nodeDef = `${n._id}[("${safeLabel}")]`; // Database shape [(...)]
+        } else if (n.type === "selection") {
+            nodeDef = `${n._id}{{"${safeLabel}"}}`; // Hexagon
+        } else if (n.type === "projection") {
+            nodeDef = `${n._id}[/"${safeLabel}"/]`; // Parallelogram [/ ... /]
+        } else if (n.type === "join") {
+            nodeDef = `${n._id}{"${safeLabel}"}`; // Rhombus
+        } else if (n.type === "cartesian") {
+            nodeDef = `${n._id}("${safeLabel}")`; // Round edges
+        } else {
+            nodeDef = `${n._id}["${safeLabel}"]`;
+        }
+
+        lines.push(nodeDef);
+
+        let filhos = getFilhosDoNo(n);
+        for (let filho of filhos) {
+            if (filho) {
+                traverse(filho);
+                lines.push(`${n._id} --> ${filho._id}`);
+            }
+        }
+    }
+
+    traverse(node);
+    return lines.join("\n");
 }

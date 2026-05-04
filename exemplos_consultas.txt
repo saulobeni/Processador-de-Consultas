@@ -1,0 +1,35 @@
+CÓDIGO DE EXEMPLOS PARA TESTAR O PROCESSADOR DE CONSULTAS:
+
+====================================================
+Exemplo 1: Seleção e Projeção Simples (1 Tabela)
+====================================================
+SELECT Cliente.Nome, Cliente.Email
+FROM Cliente
+WHERE Cliente.idCliente > 10
+
+====================================================
+Exemplo 2: Produto Cartesiano convertido em Junção
+====================================================
+SELECT Cliente.Nome, Pedido.DataPedido, Pedido.ValorTotalPedido
+FROM Cliente, Pedido
+WHERE Cliente.idCliente = Pedido.Cliente_idCliente AND Pedido.ValorTotalPedido > 500
+
+====================================================
+Exemplo 3: JOIN Explícito com Condição (2 Tabelas)
+====================================================
+SELECT Produto.Nome, Categoria.Descricao
+FROM Produto JOIN Categoria ON Produto.Categoria_idCategoria = Categoria.idCategoria
+WHERE Produto.Preco > 100
+
+====================================================
+Exemplo 4: Filtros Múltiplos com Produto Cartesiano
+====================================================
+SELECT Endereco.Logradouro, Endereco.Cidade
+FROM Endereco, Cliente
+WHERE Endereco.Cliente_idCliente = Cliente.idCliente AND Endereco.UF = 'SP'
+
+====================================================
+Exemplo 5: Junção sem Condição Adicional (WHERE)
+====================================================
+SELECT Pedido.idPedido, Status.Descricao
+FROM Pedido JOIN Status ON Pedido.Status_idStatus = Status.idStatus

@@ -2,23 +2,58 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Processador de Consultas</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processador de Consultas SQL</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    </script>
 </head>
 <body>
-    <h1>Processador de Consultas SQL</h1>
+    <div class="app-container">
+        <header>
+            <h1>Processador de Consultas SQL</h1>
+            <p>Insira sua consulta relacional e visualize a árvore de operadores otimizada.</p>
+        </header>
 
-    <textarea id="consulta" rows="8" cols="80">
-SELECT Cliente.Nome
-FROM Cliente
-WHERE Cliente.idCliente > 10
-    </textarea>
+        <main>
+            <section class="code-panel glass-panel">
+                <div class="input-header">
+                    <h2>Código SQL</h2>
+                </div>
+                <textarea id="consulta" placeholder="Digite sua consulta SQL aqui...">
+                    SELECT Cliente.Nome
+                    FROM Cliente
+                    WHERE Cliente.idCliente > 10
+                </textarea>
+                <button class="btn-processar" onclick="processarConsulta()">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    Otimizar e Gerar Grafo
+                </button>
+            </section>
 
-    <br>
-    <button onclick="processarConsulta()">Processar</button>
-
-    <h2>Resultado</h2>
-    <pre id="resultado"></pre>
+            <div class="bottom-area">
+                <div class="left-col">
+                    <section class="glass-panel text-results">
+                        <h2>Álgebra Relacional</h2>
+                        <pre id="algebra-result">Aguardando processamento...</pre>
+                    </section>
+                    
+                    <section class="glass-panel text-results">
+                        <h2>Plano de Execução</h2>
+                        <pre id="plano-result">Aguardando processamento...</pre>
+                    </section>
+                </div>
+                
+                <div class="right-col glass-panel graph-results">
+                    <h2>Grafo de Operadores Otimizado</h2>
+                    <div id="mermaid-graph" class="mermaid"></div>
+                </div>
+            </div>
+        </main>
+    </div>
 
     <script src="script.js"></script>
 </body>
