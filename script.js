@@ -42,14 +42,14 @@ function validarCampos(campos, tabelas) {
         let [tabela, atributo] = campo.split(".");
 
         if (!tabela || !atributo) {
-            throw `Campo invÃ¡lido: ${campo}. Use Tabela.Atributo`;
+            throw `Campo inválido: ${campo}. Use Tabela.Atributo`;
         }
 
         let tabelaNaConsulta = tabelas
             .find(t => t.toLowerCase() === tabela.toLowerCase());
 
         if (!tabelaNaConsulta) {
-            throw `Tabela nÃ£o usada na consulta: ${tabela}`;
+            throw `Tabela não usada na consulta: ${tabela}`;
         }
 
         let tabelaReal = Object.keys(METADADOS)
@@ -100,10 +100,10 @@ function validarParenteses(texto) {
     for (let char of texto) {
         if (char === "(") nivel++;
         if (char === ")") nivel--;
-        if (nivel < 0) throw "ParÃªnteses invÃ¡lidos na consulta.";
+        if (nivel < 0) throw "Parênteses inválidos na consulta.";
     }
 
-    if (nivel !== 0) throw "ParÃªnteses invÃ¡lidos na consulta.";
+    if (nivel !== 0) throw "Parênteses inválidos na consulta.";
 }
 
 function validarCondicoes(condicoes, tabelas) {
@@ -111,13 +111,13 @@ function validarCondicoes(condicoes, tabelas) {
         validarParenteses(cond);
 
         if (/\bOR\b/i.test(cond)) {
-            throw "Operador invÃ¡lido. Use apenas AND para combinar condiÃ§Ãµes.";
+            throw "Operador inválido. Use apenas AND para combinar condições.";
         }
 
         let condLimpa = cond.replace(/[()]/g, " ").trim();
 
         if (!/(<=|>=|<>|=|<|>)/.test(condLimpa)) {
-            throw `CondiÃ§Ã£o invÃ¡lida: ${cond}`;
+            throw `Condição inválida: ${cond}`;
         }
 
         let atributos = extrairAtributos([cond]);
@@ -127,7 +127,7 @@ function validarCondicoes(condicoes, tabelas) {
 
 function parseConsulta(sql) {
     let partes = sql.match(/^SELECT\s+(.+?)\s+FROM\s+(.+)$/i);
-    if (!partes) throw "Consulta invÃ¡lida.";
+    if (!partes) throw "Consulta inválida.";
 
     let camposArr = partes[1].split(",").map(s => s.trim()).filter(Boolean);
     let resto = partes[2].trim();
@@ -138,7 +138,7 @@ function parseConsulta(sql) {
 
     if (/\bJOIN\b/i.test(fromPart)) {
         let baseMatch = fromPart.match(/^(\w+)\s+JOIN\s+/i);
-        if (!baseMatch) throw "Consulta invÃ¡lida.";
+        if (!baseMatch) throw "Consulta inválida.";
 
         let joins = [];
         let joinRegex = /JOIN\s+(\w+)\s+ON\s+(.+?)(?=\s+JOIN\s+\w+\s+ON\s+|$)/gi;
@@ -151,14 +151,14 @@ function parseConsulta(sql) {
             });
         }
 
-        if (joins.length === 0) throw "JOIN invÃ¡lido.";
+        if (joins.length === 0) throw "JOIN inválido.";
 
         let tabelas = [baseMatch[1]].concat(joins.map(j => j.table));
         return { camposArr, tabelas, condicoesArr, joins };
     }
 
     let tabelas = fromPart.split(",").map(s => s.trim()).filter(Boolean);
-    if (tabelas.length === 0) throw "Consulta invÃ¡lida.";
+    if (tabelas.length === 0) throw "Consulta inválida.";
 
     return { camposArr, tabelas, condicoesArr, joins: [] };
 }
@@ -233,6 +233,8 @@ function processarConsulta() {
         // HEURÍSTICAS
         // Criterio: Heuristicas de reducao de tuplas e atributos
         let arvoreRedTuplas = aplicarReducaoTuplas(deepClone(arvore));
+        // Criterio: Heuristica b.i - reordenar folhas: junções mais restritivas primeiro
+        arvoreRedTuplas.child = reordenarJuncoesPorSeletividade(arvoreRedTuplas.child);
         let arvoreRedAtrib = aplicarReducaoAtributos(deepClone(arvoreRedTuplas), camposArr);
 
         // NOVOS RESULTADOS
@@ -509,6 +511,38 @@ function pushProjectionDown(node, neededAttrs) {
         var combinedNeeded = unirUnicos(neededAttrs, node.attributes);
         node.child = pushProjectionDown(node.child, combinedNeeded);
         return node;
+    }
+
+    return node;
+}
+
+// Criterio: Heuristica b.i - reordenar nós folha por seletividade (junções mais restritivas primeiro)
+function contarSelecoes(node) {
+    if (!node) return 0;
+    let count = node.type === "selection" ? 1 : 0;
+    if (node.child) count += contarSelecoes(node.child);
+    if (node.left) count += contarSelecoes(node.left);
+    if (node.right) count += contarSelecoes(node.right);
+    return count;
+}
+
+function reordenarJuncoesPorSeletividade(node) {
+    if (!node) return node;
+
+    if (node.type === "join" || node.type === "cartesian") {
+        node.left = reordenarJuncoesPorSeletividade(node.left);
+        node.right = reordenarJuncoesPorSeletividade(node.right);
+
+        let leftCount = contarSelecoes(node.left);
+        let rightCount = contarSelecoes(node.right);
+
+        if (rightCount > leftCount) {
+            let temp = node.left;
+            node.left = node.right;
+            node.right = temp;
+        }
+    } else if (node.child) {
+        node.child = reordenarJuncoesPorSeletividade(node.child);
     }
 
     return node;
